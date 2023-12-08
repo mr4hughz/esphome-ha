@@ -1,0 +1,192 @@
+# GPIO5
+
+# v2.0 temp-mat esp32-wroom 
+# This description is to make the code easier to read
+ # so this device needs to be as "dumb" as possible, 
+################# 
+# board esp32-wroom-32 
+# 
+# 3,3v pin (power)
+# EN to ground = reset button 
+# D0 = programming pin (do not connect)
+# D2 = internal led pin (do not connect)
+# D5 = internal  pin (do not connect)
+# D6,7,8,9,10,11, = internal  pin (do not connect)
+# D15 = internal  pin (do not connect)
+# D34.35,vp.vn = input only no internal pull up
+# GPIO1  = txd internal flashing (use gpio17 instead)
+# GPIO3  = rxd internal flashing (use gpio16 instead)
+################# 
+#   This combines 6 temperature readings from ds18b20, you should calibrate the sensors before permanent fixing them (software or when bought in a bundle get close matching)
+#
+#  in this case they are located under a EPDM solar mat when enough heat (summer time) HA will switch the pool pump on 
+#  if you set a maintance cycle daily say 2 hours before the sun goes down, with or without enough sun the pool is kept clean and heated. 
+#  note if you have automated switches make sure they are in the correct flow setting before turning the pump on. 
+#
+################
+#
+# Voltage divider for 18650 battery-ups board, either 1 or 2 pins (ADC needed)
+#  connect to + 47k 
+#  connect to adc pin(s)
+#  connect to - 47k 
+################
+substitutions:
+  web_port: "80"
+  web_version: "2"
+  platform: ESP32
+  board: nodemcu-32s # https://esphome.io/devices/nodemcu_esp32.html ESP32-DevkitC
+  core: dev
+  arduino: recommended
+  
+  ## Identity
+  devicename: temp-mat
+  upper_devicename: Temp-Mat
+  logger_level: DEBUG # default DEBUG, options = NONE,ERROR,WARN,INFO,VERBOSE,VERY_VERBOSE
+  # https://esphome.io/components/logger.html?highlight=logger
+
+  ###### Pins
+  dallas_pin: GPIO5
+
+esphome:
+  name: $devicename
+#  name_add_mac_suffix: true # this sucks 
+  on_boot:
+    then:
+      - script.execute: boot_script
+
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 1100ms
+    window: 1100ms
+    active: true
+
+bluetooth_proxy:
+  active: true
+
+script:
+  - id: boot_script
+    then:
+      - logger.log:
+          format: "boot_script started"
+          level: INFO
+      - logger.log:
+          format: "waiting for api connection"
+          level: INFO
+      - wait_until:
+          condition:
+            api.connected:
+      - logger.log:
+          format: "api is connected"
+          level: INFO
+#      - homeassistant.service:
+#          service: light.turn_on
+#          data:
+#            entity_id: light.livingroom
+
+esp32:
+  board: $board
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: $logger_level
+  logs:
+    mqtt.component: DEBUG
+    mqtt.client: ERROR
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_ecryption_key
+
+ota:
+  password: !secret ota_password 
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  use_address: !secret IP_adrress111 # 192.168.1.234
+  manual_ip:
+    static_ip: !secret IP_address111
+    gateway: !secret IP_gateway
+    subnet: !secret IP_subnet
+    dns1: !secret IP_dns1
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: $devicename " Hotspot"
+    password: !secret wifi_AP_key
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: ${devicename} IP Address
+    ssid:
+      name: ${devicename} Connected SSID
+    bssid:
+      name: ${devicename} Connected BSSID
+    mac_address:
+      name: ${devicename} Mac Wifi Address
+    scan_results:
+      name: ${devicename} Latest Scan Results
+      
+captive_portal:
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+    
+web_server:
+  port: $web_port
+  version: 2
+
+# Example configuration entry
+binary_sensor:
+  - platform: status
+    name: ${devicename}
+
+switch:
+  - platform: restart
+    name: ${devicename}" Restart"
+
+dallas:
+  - pin: $dallas_pin
+    update_interval: 300s
+
+sensor:
+ - platform: dallas
+   address: 0xb40120632adf5028
+   name: temp_mat_DS18B20_1
+   filters:
+   #- offset: 2.0
+   - filter_out: 85.0 
+ - platform: dallas
+   address: 0x3d0120632dab5c28
+   name: temp_mat_DS18B20_2
+   filters:
+   #- offset: -0.3
+   - filter_out: 85.0 
+ - platform: dallas
+   address: 0x590120632aa07328
+   name: temp_mat_DS18B20_3
+   filters:
+   #- offset: 2.0
+   - filter_out: 85.0 
+ - platform: dallas
+   address: 0x99012063349a3b28
+   name: temp_mat_DS18B20_4
+   filters:
+   #- offset: -0.3
+   - filter_out: 85.0 
+ - platform: dallas
+   address: 0x3a0120631aaf0728
+   name: temp_mat_DS18B20_5
+   filters:
+   #- offset: 0.6
+   - filter_out: 85.0 
+ - platform: dallas
+   address: 0xc701206329517f28
+   name: temp_mat_DS18B20_6
+   filters:
+   #- offset: -0.3
+   - filter_out: 85.0 
