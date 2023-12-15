@@ -1,0 +1,550 @@
+# v4.0 attic-light-control esp32-wroom 
+# This description is to make the code easier to read
+# # so this device needs to be as "dumb" as possible, all tags handeling should be done by home assistant (if possible)
+################# 
+# board esp32-wroom-32 
+# 
+# 3,3v pin (power)
+# EN to ground = reset button 
+# D0 = programming pin (do not connect)
+# D2 = internal led pin (do not connect)
+# D5 = internal  pin (do not connect)
+# D6,7,8,9,10,11, = internal  pin (do not connect)
+# D15 = internal  pin (do not connect)
+# D34.35,vp.vn = input only no internal pull up
+# GPIO1  = txd internal flashing (use gpio17 instead)
+# GPIO3  = rxd internal flashing (use gpio16 instead)
+################# 
+# pins used (soldering)
+# pwm pin(s) 2x (pwmpin1 + pwmpin2 ) 
+# rgb LED 2x (pwmpin3 + pwmpin4 )
+# power supply switch 4x ( relaypin1, relaypin2, relaypin3, relaypin4)
+# touch button 
+#
+# note: 
+# when attaching ledstring(s) start with DI (data in) and where DO (Data Out) ends you normally attached the next/second ledstring
+# however where if this is the second pin you are using attach it to the same data in as where you would connect from A to B 
+# this should be clear when you run a "snake or moving light effect", this is not intended as a display though 
+################
+# button to trigger 2 things 
+# short press open door (if party mode is enabled, no tags needed)
+# long press = battery status 
+################
+# in HA & webinterface all devices are individually controlled 
+#
+# via ESP (direct physical controll )
+# the touch sensor starts at level 60 (turned on) and turns off ledstring via "template main switch"
+# then cycles in steps 10% except 0 = off, if higher then 100% then set to 10% 
+#
+# when light is turned on --> relay(pins) get triggerd --> then light
+# ledc controlles PWM 0-10v boards 
+# fastled_clockless controlls ledstring(s) 
+#
+#
+##### PWM 0-5v or 0-10v 
+# using PWM pin gives 0-1v maybe dac channels ? 
+# https://esphome.io/components/output/esp32_dac.html
+# https://deploy-preview-2901--esphome.netlify.app/components/output/gp8403
+################
+substitutions:
+  ###### Board specifics
+  core: dev
+  arduino: recommended
+  platform: ESP32
+  board: nodemcu-32s # https://esphome.io/devices/nodemcu_esp32.html ESP32-DevkitC
+  ###### web portal 
+  web_port: "80"
+  web_version: "2"
+  ###### Identity
+  devicename: atticlight
+  friendlyname: Attic Light Controller
+  upper_devicename: AtticLight
+  logger_level: DEBUG # default DEBUG, options = NONE,ERROR,WARN,INFO,VERBOSE,VERY_VERBOSE
+  # https://esphome.io/components/logger.html?highlight=logger
+  ###### Pins
+  pwmpin1: GPIO21 # light1 (0-10v light1)
+  pwmpin2: GPIO33 # light2 (0-10v light2)
+  pwmpin3: GPIO19 # light3 (ledstrip 1)
+  pwmpin4: GPIO18 # light4 (ledstrip 2)
+  relaypin1: GPIO17 # Relay1,comm = vcc,NO = light1 
+  relaypin2: GPIO16 # Relay2,comm = vcc,NO = light2
+  relaypin3: GPIO04 # Relay3,comm = vcc,NO = light3
+  relaypin4: GPIO26 # Relay4,comm = vcc,NO = light4
+  touchpin1: GPIO32 # Touch sensor 
+  ###### Variables:
+  DefaultLightSetting: "60"
+
+# set some globals when system boots up 
+globals:
+  - id: light1setpercentpwm  
+    type: float
+    restore_value: no
+    initial_value: "0" 
+  - id: light2setpercentpwm
+    type: float
+    restore_value: no
+    initial_value: "0"
+  - id: light3setpercentpwm
+    type: float
+    restore_value: no
+    initial_value: "0"
+  - id: light4setpercentpwm
+    type: float
+    restore_value: no
+    initial_value: "0"
+  - id: MainLightClick
+    type: int
+    restore_value: no
+    initial_value: $DefaultLightSetting
+  - id: a1stLightClick
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: a2ndLightClick
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+esphome:
+  name: $devicename
+  friendly_name: $friendlyname
+  name_add_mac_suffix: true # this sucks 
+  on_boot:
+    then:
+      - script.execute: boot_script
+  project:
+    name: "vso.pwm_attic_project"
+    version: "1.1.0"
+# to be researched
+# psram:
+#  mode: octal
+#  speed: 80mhz \
+
+esp32:
+  board: $board
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: $logger_level
+#  logs:
+#    mqtt.component: DEBUG
+#    mqtt.client: ERROR
+
+script:
+  - id: boot_script
+    then:
+      - logger.log:
+          format: "Boot_script started"
+          level: INFO
+      - logger.log:
+          format: "Waiting for API connection"
+          level: INFO
+      - wait_until:
+          condition:
+            api.connected:
+      - logger.log:
+          format: "API is connected"
+          level: INFO
+
+
+# Enable Home Assistant API
+api:
+  #port: 6053 # set port defaults to 6053
+  encryption:
+    key: !secret api_ecryption_key 
+  reboot_timeout: 0s # default 15min
+  on_client_disconnected:
+    - logger.log: "API client disconnected!"
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+ota:
+  password: !secret ota_password
+  # send log updates
+  on_state_change:
+    then:
+      - if:
+          condition:
+            lambda: return state == ota::OTA_STARTED;
+          then:
+            - logger.log: "OTA start"
+      - if:
+          condition:
+            lambda: return state == ota::OTA_IN_PROGRESS;
+          then:
+            - logger.log: "OTA_IN_PROGRESS"
+      - if:
+          condition:
+            lambda: return state == ota::OTA_COMPLETED;
+          then:
+            - logger.log: "OTA_COMPLETED"
+      - if:
+          condition:
+            lambda: return state == ota::OTA_ERROR;
+          then:
+            - logger.log: "OTA_ERROR"                 
+  on_error:
+    then:
+      - logger.log:
+          format: "OTA update error %d"
+          args: ["x"]
+          
+network: 
+    enable_ipv6: False
+
+wifi:
+ # use_address: !secret IP_adrress116 
+  networks:
+  - ssid: !secret wifi_ssid
+    password: !secret wifi_password
+  - ssid: !secret wifi_ssid2
+    password: !secret wifi_password2
+  manual_ip:
+    static_ip: !secret IP_address116
+    gateway: !secret IP_gateway
+    subnet: !secret IP_subnet
+    dns1: !secret IP_dns1
+# Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: $devicename " Hotspot"
+    password: !secret wifi_AP_key
+
+captive_portal:
+
+wled: 
+  
+web_server:
+  port: $web_port
+  version: 2
+  local: True
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: ${devicename} IP Address
+    ssid:
+      name: ${devicename} Connected SSID
+    bssid:
+      name: ${devicename} Connected BSSID
+    mac_address:
+      name: ${devicename} Mac Wifi Address
+    # scan_results:
+    #  name: ${devicename} Latest Scan Results
+
+# control external relay switch (powersupplies)
+power_supply:
+    # name: "power supply light 1"
+  - id: 'relayswitch1'  
+    pin: $relaypin1
+    enable_time: 2ms
+    # name: "power supply light 2" 
+  - id: relayswitch2 
+    pin: $relaypin2
+    enable_time: 2ms
+    # name: "power supply light 3" 
+  - id: relayswitch3  
+    pin: $relaypin3
+    enable_time: 2ms
+    # name: "power supply light 4"
+  - id: relayswitch4  
+    pin: $relaypin4
+    enable_time: 2ms 
+
+# display current PWM level (HA and webportal)
+sensor:
+  - platform: template
+    name: "light 1 (PWM level)"
+    id: light1setsensor
+    lambda: |-
+      return id(light1setpercentpwm);
+    # update_interval: 10s
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    icon: "mdi:pulse"
+  - platform: template
+    name: "light 2 (PWM level)"
+    id: light2setsensor
+    lambda: |-
+      return id(light2setpercentpwm);
+    # update_interval: 10s
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    icon: "mdi:pulse"
+ 
+# the switches we need 
+switch:
+  # (HA and webportal) restart ESP device button
+  - platform: restart  
+    name: ${devicename}" Restart" 
+    icon: "mdi:pulse" 
+  # define 1st light (ha and esphome)
+ 
+button:
+  - platform: template
+    name: "Main light 1 virtual-Button"
+    id: "a1stLightButton"
+    icon: "mdi:pulse" 
+    on_press:
+      - lambda: |-
+          id(light1setpercentpwm)+ '10';
+          if( id(light1setpercentpwm) > 100 ) id(light1setpercentpwm) = 10; 
+          id(light_1).set_level(id(light1setpercentpwm)/100);
+          id(light1setsensor).publish_state(id(light1setpercentpwm));
+  # define 2nd light (ha and esphome)
+  - platform: template
+    name: "Main light 2 virtual-Button"
+    id: "a2ndLightButton"
+    icon: "mdi:pulse" 
+    on_press:
+      - lambda: |-
+          id(light2setpercentpwm)++;
+          if( id(light2setpercentpwm) > 100 ) id(light2setpercentpwm) = 10; 
+          id(light_2).set_level(id(light2setpercentpwm)/100);
+          id(light2setsensor).publish_state(id(light2setpercentpwm));
+          return id(light2setsensor).publish_state(id(light2setpercentpwm));
+  # define the main light switch  (ha and esphome + physical)  
+
+number:
+  - platform: template
+    name: "Main light group (1+2)"
+    id: "main_light_slider"
+    step: 1
+    min_value: 0
+    max_value: 100
+    mode: slider
+    optimistic: true
+    set_action:
+      then:
+        - lambda: |-
+            id(light1setpercentpwm) = x;
+            id(light2setpercentpwm) = x;
+        - number.set: 
+            id: a1st_light_slider
+            value: !lambda 'return id(light1setpercentpwm);' 
+        - number.set: 
+            id: a2nd_light_slider
+            value: !lambda 'return id(light2setpercentpwm);' 
+  - platform: template
+    name: "Main light 1"
+    id: "a1st_light_slider"
+    step: 10
+    min_value: 0
+    max_value: 100
+    mode: slider
+    optimistic: true
+    set_action:
+      then:
+        - lambda: |-
+           id(light1setpercentpwm) = x;
+           id(light1setsensor).publish_state(id(light1setpercentpwm));
+  - platform: template
+    name: "Main light 2"
+    id: "a2nd_light_slider"
+    step: 10
+    min_value: 0
+    max_value: 100
+    mode: slider
+    optimistic: true
+    set_action:
+      then:
+        - lambda: |-
+           id(light2setpercentpwm) = x;
+           id(light2setsensor).publish_state(id(light2setpercentpwm));
+
+binary_sensor:
+  - platform: gpio
+    name: "ESP32 Touch Pad" # physical touch-sensor (ts223)
+    id: light1setvaluesensor
+    pin: $touchpin1
+    icon: "mdi:GestureTapButton"
+    on_click:
+    - min_length: 50ms
+      max_length: 350ms
+      then:
+      # turn on or off 
+      - lambda: |-
+          if(id(mainclick).state){
+              id(mainclick).publish_state(false);
+              'return id(mainclick).state';
+              id(light_1).turn_off(); 
+              'return id(light_1).state';
+              id(light_2).turn_off();
+              'return id(light_2).state';
+              id(light_3).turn_off();
+              'return id(light_3).state';
+              id(light_4).turn_off();
+              'return id(light_4).state';
+              id(light5).turn_off();
+              'return id(light5).state';
+              return ;
+          } else {
+              id(mainclick).publish_state(true);
+              'return id(mainclick).state';
+              id(light_1).turn_on();
+              'return id(light_1).state'; 
+              id(light_2).turn_on();
+              'return id(light_2).state';
+              id(light_3).turn_off();
+              'return id(light_3).state';
+              id(light_4).turn_off();
+              'return id(light_4).state';
+              id(light5).turn_off();
+              'return id(light5).state';
+          };
+      - logger.log: "touchswitch Short Click state change"
+    - min_length: 100ms
+      then:
+          # stepping light +10% 
+      - lambda: id(MainLightClick) + 10; 
+      - logger.log: "touchswitch Long Clicked state change"
+  - platform: template
+    name: "Main Light Touch-Button"
+    id: "mainclick"
+    icon: "mdi:pulse" 
+    on_state:
+    # equalize the lights (highest % of light 1 or 2 will win & equalize to 10,20,30,40,50,60,70,90 or 100, turn light 3 and 4 off)
+      - lambda: |-
+          if(id(a1stLightClick) != id(MainLightClick));
+            id(a1stLightClick) = id(MainLightClick);
+            'return id(a1stLightClick) = id(MainLightClick)';
+          if( id(a2ndLightClick) != id(MainLightClick));
+            id(a2ndLightClick) = id(MainLightClick);
+            'return id(a2ndLightClick) = id(MainLightClick)'; 
+      - logger.log: "main light touch-button state changed"
+  
+output:
+    # name: "light_1 state"
+  - platform: ledc  # for PWM control 0-10v 
+    pin: $pwmpin1 #  PWM Pin 0-10v 
+    frequency: 1000 Hz #  PWM Pin 0-10v between 1000 and 3000 hz 
+    id: light_1
+    power_supply: relayswitch1
+    inverted: False
+    min_power: 0.00
+    max_power: 1.00
+    zero_means_zero: False
+    # name: "light_2 state"
+  - platform: ledc
+    pin: $pwmpin2
+    frequency: 1000 Hz
+    id: light_2
+    power_supply: relayswitch1
+    inverted: False
+    min_power: 0.00
+    max_power: 1.00
+    zero_means_zero: False
+
+light:
+  - platform: neopixelbus
+    id: light_3
+    name: "Hidden lights 3"
+    power_supply: relayswitch3
+    restore_mode: ALWAYS_OFF
+    variant: WS2812
+    pin: $pwmpin3
+    num_leds: 8
+    type: GRB
+    method: # added to avoid issues on multiple strips control
+      type: esp32_rmt
+      channel: 0
+  - platform: neopixelbus
+    id: light_4
+    name: "Hidden lights 4"
+    power_supply: relayswitch4
+    restore_mode: ALWAYS_OFF
+    variant: WS2812
+    pin: $pwmpin4
+    num_leds: 16
+    type: GRB
+    method: # added to avoid issues on multiple strips control
+      type: esp32_rmt
+      channel: 1
+  - platform: partition
+    name: "Hidden lights 5 (3+4)"
+    id: light5
+    segments: 
+      - id: light_3
+        from: 0 # number 1 
+        to : 7 # if 16 leds -1 = 15
+      - id: light_4
+        from: 0 # number 1 
+        to : 15 # if 16 leds -1 = 15
+      #- single_light_id: light6
+    effects:
+      - wled:
+      - addressable_rainbow:
+          name: Rainbow Effect With Custom Values
+          speed: 10
+          width: 100
+      - random:
+          name: "Slow Random Effect"
+          transition_length: 4s
+          update_interval: 1s
+      - random:
+          name: "Fast Random Effect"
+          transition_length: 2s
+          update_interval: 1s
+      - pulse:
+          name: "Fast Pulse"
+          transition_length: 0.5s
+          update_interval: 0.5s
+          min_brightness: 0%
+          max_brightness: 100%
+      - strobe:
+          name: Alarm
+          colors:
+            - state: True
+              brightness: 100%
+              red: 100%
+              green: 0%
+              blue: 0%
+              duration: 10ms
+            - state: False
+              duration: 10ms
+            - state: True
+              brightness: 100%
+              red: 0%
+              green: 0%
+              blue: 100%
+              duration: 10ms
+            - state: False
+              duration: 10ms
+      - flicker:
+          name: Flicker Effect With Custom Values
+          alpha: 95%
+          intensity: 1.5%
+      - addressable_color_wipe:
+          name: Color Wipe Effect With Custom Values
+          colors:
+            - red: 100%
+              green: 100%
+              blue: 100%
+              num_leds: 1
+            - red: 0%
+              green: 0%
+              blue: 0%
+              num_leds: 1
+          add_led_interval: 100ms
+          reverse: false
+      - addressable_scan:
+          name: Scan Effect With Custom Values
+          move_interval: 100ms
+          scan_width: 1
+      - addressable_twinkle:
+          name: Twinkle Effect With Custom Values
+          twinkle_probability: 5%
+          progress_interval: 4ms
+      - addressable_random_twinkle:
+          name: Random Twinkle Effect With Custom Values
+          twinkle_probability: 5%
+          progress_interval: 32ms
+      - addressable_fireworks:
+          name: Fireworks Effect With Custom Values
+          update_interval: 32ms
+          spark_probability: 10%
+          use_random_color: false
+          fade_out_rate: 120
