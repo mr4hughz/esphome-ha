@@ -384,7 +384,6 @@ binary_sensor:
               'return id(light4).state';
               id(light5).turn_off();
               'return id(light5).state';
-              return ;
               ESP_LOGD("ESP32 Touch Pad","bla1");
           } else {
               id(light1).turn_on();
@@ -399,7 +398,7 @@ binary_sensor:
               'return id(light5).state';
               ESP_LOGD("ESP32 Touch Pad","bla2");
           };
-      - logger.log: "touchswitch Short Click state change"
+      - logger.log: "Touchswitch Short Click state change"
     - min_length: 100ms
       then:
           # stepping light +10% 
@@ -429,17 +428,17 @@ output:
     frequency: 1000 Hz #  PWM Pin 0-10v between 1000 and 3000 hz 
     id: light1
     power_supply: relayswitch1
-    inverted: False
+    inverted: false
     min_power: 0.00
     max_power: 1.00
     zero_means_zero: False
     # name: "light2 state"
-  - platform: ledc
-    pin: $pwmpin2
-    frequency: 1000 Hz
+  - platform: ledc # for PWM control 0-10v
+    pin: $pwmpin2 #  PWM Pin 0-10v 
+    frequency: 1000 Hz #  PWM Pin 0-10v between 1000 and 3000 hz
     id: light2
-    power_supply: relayswitch1
-    inverted: False
+    power_supply: relayswitch2
+    inverted: false
     min_power: 0.00
     max_power: 1.00
     zero_means_zero: False
