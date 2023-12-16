@@ -104,6 +104,7 @@ globals:
     type: int
     restore_value: no
     initial_value: "0"
+ 
 
 esphome:
   name: $devicename
@@ -292,8 +293,9 @@ button:
       - lambda: |-
           id(light1setpercentpwm)+ '10';
           if( id(light1setpercentpwm) > 100 ) id(light1setpercentpwm) = 10; 
-          id(light_1).set_level(id(light1setpercentpwm)/100);
+          id(light1).set_level(id(light1setpercentpwm)/100);
           id(light1setsensor).publish_state(id(light1setpercentpwm));
+          ESP_LOGD("Main light 1 virtual-Button","bla");
   # define 2nd light (ha and esphome)
   - platform: template
     name: "Main light 2 virtual-Button"
@@ -303,10 +305,12 @@ button:
       - lambda: |-
           id(light2setpercentpwm)++;
           if( id(light2setpercentpwm) > 100 ) id(light2setpercentpwm) = 10; 
-          id(light_2).set_level(id(light2setpercentpwm)/100);
+          id(light2).set_level(id(light2setpercentpwm)/100);
           id(light2setsensor).publish_state(id(light2setpercentpwm));
           return id(light2setsensor).publish_state(id(light2setpercentpwm));
-  # define the main light switch  (ha and esphome + physical)  
+          ESP_LOGD("Main light 2 virtual-Button","bla");
+  # define the main light switch  (ha and esphome + physical)
+    
 
 number:
   - platform: template
@@ -341,6 +345,7 @@ number:
         - lambda: |-
            id(light1setpercentpwm) = x;
            id(light1setsensor).publish_state(id(light1setpercentpwm));
+           ESP_LOGD("Main light 1","bla");
   - platform: template
     name: "Main light 2"
     id: "a2nd_light_slider"
@@ -354,6 +359,7 @@ number:
         - lambda: |-
            id(light2setpercentpwm) = x;
            id(light2setsensor).publish_state(id(light2setpercentpwm));
+           ESP_LOGD("Main light 2","bla");
 
 binary_sensor:
   - platform: gpio
@@ -368,32 +374,30 @@ binary_sensor:
       # turn on or off 
       - lambda: |-
           if(id(mainclick).state){
-              id(mainclick).publish_state(false);
-              'return id(mainclick).state';
-              id(light_1).turn_off(); 
-              'return id(light_1).state';
-              id(light_2).turn_off();
-              'return id(light_2).state';
-              id(light_3).turn_off();
-              'return id(light_3).state';
-              id(light_4).turn_off();
-              'return id(light_4).state';
+              id(light1).turn_off(); 
+              'return id(light1).state';
+              id(light2).turn_off();
+              'return id(light2).state';
+              id(light3).turn_off();
+              'return id(light3).state';
+              id(light4).turn_off();
+              'return id(light4).state';
               id(light5).turn_off();
               'return id(light5).state';
               return ;
+              ESP_LOGD("ESP32 Touch Pad","bla1");
           } else {
-              id(mainclick).publish_state(true);
-              'return id(mainclick).state';
-              id(light_1).turn_on();
-              'return id(light_1).state'; 
-              id(light_2).turn_on();
-              'return id(light_2).state';
-              id(light_3).turn_off();
-              'return id(light_3).state';
-              id(light_4).turn_off();
-              'return id(light_4).state';
+              id(light1).turn_on();
+              'return id(light1).state'; 
+              id(light2).turn_on();
+              'return id(light2).state';
+              id(light3).turn_off();
+              'return id(light3).state';
+              id(light4).turn_off();
+              'return id(light4).state';
               id(light5).turn_off();
               'return id(light5).state';
+              ESP_LOGD("ESP32 Touch Pad","bla2");
           };
       - logger.log: "touchswitch Short Click state change"
     - min_length: 100ms
@@ -411,36 +415,39 @@ binary_sensor:
           if(id(a1stLightClick) != id(MainLightClick));
             id(a1stLightClick) = id(MainLightClick);
             'return id(a1stLightClick) = id(MainLightClick)';
+            ESP_LOGD("Main Light Touch-Button","bla1");
           if( id(a2ndLightClick) != id(MainLightClick));
             id(a2ndLightClick) = id(MainLightClick);
             'return id(a2ndLightClick) = id(MainLightClick)'; 
+            ESP_LOGD("Main Light Touch-Button","bla2");
       - logger.log: "main light touch-button state changed"
   
 output:
-    # name: "light_1 state"
+    # name: "light1 state"
   - platform: ledc  # for PWM control 0-10v 
     pin: $pwmpin1 #  PWM Pin 0-10v 
     frequency: 1000 Hz #  PWM Pin 0-10v between 1000 and 3000 hz 
-    id: light_1
+    id: light1
     power_supply: relayswitch1
     inverted: False
     min_power: 0.00
     max_power: 1.00
     zero_means_zero: False
-    # name: "light_2 state"
+    # name: "light2 state"
   - platform: ledc
     pin: $pwmpin2
     frequency: 1000 Hz
-    id: light_2
+    id: light2
     power_supply: relayswitch1
     inverted: False
     min_power: 0.00
     max_power: 1.00
     zero_means_zero: False
 
+
 light:
   - platform: neopixelbus
-    id: light_3
+    id: light3
     name: "Hidden lights 3"
     power_supply: relayswitch3
     restore_mode: ALWAYS_OFF
@@ -451,8 +458,14 @@ light:
     method: # added to avoid issues on multiple strips control
       type: esp32_rmt
       channel: 0
+    on_state:
+      - lambda: |-
+          if(id(light3setpercentpwm) = 0);
+          then: 
+          id(light3).turn_off();
+          ESP_LOGD("Hidden lights 3","bla");
   - platform: neopixelbus
-    id: light_4
+    id: light4
     name: "Hidden lights 4"
     power_supply: relayswitch4
     restore_mode: ALWAYS_OFF
@@ -463,14 +476,20 @@ light:
     method: # added to avoid issues on multiple strips control
       type: esp32_rmt
       channel: 1
+    on_state:
+      - lambda: |-
+          if(id(light4setpercentpwm) = 0);
+          then: 
+          id(light4).turn_off();
+          ESP_LOGD("Hidden lights 4","bla");
   - platform: partition
     name: "Hidden lights 5 (3+4)"
     id: light5
     segments: 
-      - id: light_3
+      - id: light3
         from: 0 # number 1 
         to : 7 # if 16 leds -1 = 15
-      - id: light_4
+      - id: light4
         from: 0 # number 1 
         to : 15 # if 16 leds -1 = 15
       #- single_light_id: light6
@@ -548,3 +567,4 @@ light:
           spark_probability: 10%
           use_random_color: false
           fade_out_rate: 120
+     
